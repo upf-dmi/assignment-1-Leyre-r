@@ -1,0 +1,539 @@
+---
+title: "DMI - Hands on 1"
+author: " Maria Pau Pijoan & Leyre Roca (u269315@upf.edu)"
+date: "Last update: `r format(Sys.time(), '%d %B, %Y')`"      
+output:
+  html_document:
+    toc: true
+    fig_caption: true
+---
+
+```{r setup, include=FALSE}
+#install.packages("knitr") #can execute R code inside the R markdown documents
+
+knitr::opts_chunk$set(echo = TRUE) #=como se muestra el codigo, i TRUE significa que el cdigo R se muestra en el documento final (html, PDF,word)
+```
+
+This practical focuses on data wrangling, exploratory data analysis, visualization, and critical comparison with published results using real biomedical data.
+
+We will work with the publication [**Proteomic and Metabolomic Characterization of COVID-19 Patient Sera**](https://www.sciencedirect.com/science/article/pii/S0092867420306279)
+
+# Exercise 1
+
+Download and load Supplementary Table 1 (“Additional Demographical and Baseline Characteristics of COVID-19 Patients and Control Groups”) from the supplementary materials of the publication.
+
+## Exercise 1.1
+
+Reproduce Table 1 from the manuscript using the supplementary data. Match the reported summary statistics as closely as possible.
+
+Briefly discuss any discrepancies between your results and the published table, and provide possible explanations.
+```{r setup , include=FALSE}
+#install.packages(c("readxl","dplyr","stringr","readr","lubridate","table1","janitor","htmltools","ggplot2","ggpubr", "patchwork", "pheatmap"))
+library(readxl)
+library(dplyr)
+library(stringr)
+library(readr)
+library(lubridate)
+library(table1)
+library(janitor)
+#library(htmltools)
+library(ggplot2)
+library(ggpubr)
+library(patchwork)
+library(pheatmap)
+
+```
+
+```{r}
+# -----------------------------
+# Final code to reproduce Table 1 structure using table1
+# -----------------------------
+
+# 1) Read data
+df <- read_excel("Table-S1.Additional-Demographical-and-Baseline-Characteristics-of-COVID-19-Patients-and-Control-Groups.xlsx", sheet = 2)
+df <- clean_names(df)
+
+# 2) Build the main Table-1 group column for ALL rows first (critical)
+df <- df %>%
+  mutate(
+    group = case_when(
+      group_d == 0 ~ "Healthy Control",
+      group_d == 1 ~ "Non-COVID-19",
+      group_d == 2 ~ "Non-severe",
+      group_d == 3 ~ "Severe",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  filter(!is.na(group))  # removes any unexpected codes
+
+# 3) Clean variables used in Table 1
+df <- df %>%
+  mutate(
+    # sex coding (you confirmed: 1=Male, 0=Female)
+    sex = case_when(
+      sex_g == 1 ~ "Male",
+      sex_g == 0 ~ "Female",
+      TRUE ~ NA_character_
+    ) %>% factor(levels = c("Male","Female")),
+
+    # numeric age
+    age = parse_number(as.character(age_year)),
+
+    # numeric BMI (IMPORTANT: make it numeric, not character)
+    bmi = na_if(as.character(bmi_h), "/") %>%
+      str_replace_all(",", ".") %>%
+      str_replace_all("[^0-9.\\-]", "") %>%
+      na_if("") %>%
+      parse_number(),
+
+    # dates + time from onset to admission
+    onset_date = as.Date(onset_date_f),
+    admission_date = as.Date(admission_date),
+    onset_to_admission = as.numeric(admission_date - onset_date + 1),
+
+    # progression date is stored as Excel serial numbers like 43849
+    prog_num = suppressWarnings(as.numeric(na_if(as.character(date_of_progression_to_severe_state), "/"))),
+    prog_date = as.Date(prog_num, origin = "1899-12-30"),
+
+    # time from admission to severe (only meaningful for Severe)
+    admission_to_severe = as.numeric(prog_date - admission_date + 1)
+  )
+
+# 4) Add COVID-19 Total rows (duplicate Non-severe + Severe and relabel)
+df_total <- df %>%
+  filter(group %in% c("Non-severe", "Severe")) %>%
+  mutate(group = "COVID-19 Total")
+
+# 5) Final dataset with 5 columns for Table 1
+df5 <- bind_rows(df, df_total)
+
+df5$group <- factor(
+  df5$group,
+  levels = c("Healthy Control","Non-COVID-19","COVID-19 Total","Non-severe","Severe")
+)
+
+# 6) Formatting functions
+my.render.cont <- function(x) {
+  x <- x[!is.na(x)]
+  if (length(x) == 0) return("")
+  m <- mean(x); s <- sd(x)
+  med <- median(x)
+  q <- quantile(x, c(.25,.75))
+  r <- range(x)
+  sprintf("Mean ± SD: %.1f ± %.1f<br/>Median (IQR): %.1f (%.1f–%.1f)<br/>Range: %.1f–%.1f",
+          m, s, med, q[1], q[2], r[1], r[2])
+}
+my.render.cat <- function(x) render.categorical.default(x)
+
+# 7) Produce Table 1 and save as HTML
+t1 <- table1(
+  ~ sex + age + bmi + onset_to_admission + admission_to_severe | group,
+  data = df5,
+  render.continuous = my.render.cont,
+  render.categorical = my.render.cat,
+  overall = FALSE,
+)
+
+# 8) Añadir lineas a Table 1
+t1_con_lineas <- htmltools::HTML(paste0("
+<style>
+  .Rtable1 td { border-bottom: 1px solid #ddd !important; }
+  .Rtable1 th { border-bottom: 2px solid #000 !important; }
+</style>", t1))
+
+t1_con_lineas
+
+### QUITAR???
+#htmltools::save_html(t1_con_lineas, "table1.html")
+
+```
+
+Sex: Los pacientes Non-Severe están mal separados: a male le faltan 2 y a female le sobran 2 --> en consecuencia los datos de TOTAL-covid también están mal 
+
+Age: el minimo de edad en Severe es 30, y a mi me sale 33 (es como si estuvieran todos los pacientes pero hubiera un dato mal)
+
+Revisar de dónde viene la fila de MISSING
+
+Onset-admission: todo bien
+
+Admission-severe:
+-Solo deberia haber datos para Severe (y NO para el grupo COVID-TOTAL)
+
+AÑADIR : Edad, sexo, BMI para Descriptive Statistics
+
+
+## Exercise 1.2
+
+Perform an exploratory data analysis (EDA) of the dataset. At a minimum, include:
+
+-   Descriptive statistics for key variables\
+-   Appropriate visualizations (e.g. distributions, group comparisons)\
+-   A brief written summary of notable patterns, anomalies, or data quality issues
+
+```{r panel_ej1_2, fig.width=12, fig.height=16, echo=FALSE}
+
+###Descriptive statistics
+summary(df[,c(19:22,24:31)])
+
+### Visualizations
+a <- ggplot(data=df, aes(x=sex, fill =sex) ) +
+  geom_bar() +
+  labs(
+    title = "Patients by gender",
+    x = "Gender",
+    y = "Number of patients",
+    fill = "Gender"
+  ) +
+  theme_classic()
+
+b <- ggplot(data=df, aes(x=group, fill =sex)) +
+  geom_bar(position="fill", color = "white") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(
+    title = "Gender proportion by Severity Group",
+    x = "Patient Group",
+    y = "Proportion (%)",
+    fill = "Gender"
+  ) +
+  theme_classic()
+
+c <- ggplot(data=df, aes(x=age)) +
+  geom_histogram(fill = "skyblue") + 
+  labs(
+    title = "Age of Patients",
+    x = "Age",
+    y = "Number of patients"
+  ) +
+  theme_classic()
+
+d <- ggplot(data=df, aes(x=group, y=age)) +
+  geom_boxplot(width = 0.4, fill = "skyblue") + 
+  geom_jitter(width = 0.2, alpha = 0.5) +
+  labs(
+    title = "Age of Patients by Patient Group",
+    x = "Patient group",
+    y="Age"
+  ) +
+  theme_classic()
+
+e <- ggplot(data=df, aes(x=bmi)) +
+  geom_histogram(fill = "skyblue") + 
+  labs(
+    title = "BMI of Patients",
+    x = "BMI",
+    y="Number of patients"
+  ) +
+  theme_classic()
+
+f <- ggplot(data=df, aes(x=group, y=bmi)) +
+ geom_boxplot(width = 0.4, fill = "skyblue") + 
+  geom_jitter(width = 0.2, alpha = 0.5) +
+  labs(
+    title = "BMI of Patients by Patient Group",
+    x = "Patient group",
+    y="BMI"
+  ) +
+  theme_classic()  
+
+g <- ggplot(data=df, aes(x=onset_to_admission)) +
+  geom_histogram(fill = "skyblue") + 
+  labs(
+    title = "Days from Onset to Admission",
+    x = "Number of days",
+    y="Number of patients"
+  ) +
+  theme_classic()
+
+h <- ggplot(data=df, aes(x=admission_to_severe)) + 
+  geom_histogram(fill = "skyblue") + 
+  labs(
+    title = "Days from Admission to Severe",
+    x = "Number of days",
+    y="Number of patients"
+  ) +
+  theme_classic()
+
+lista_plots1.2 = list(a,b,c,d,e,f,g,h)
+
+plot_ej1.2 <- wrap_plots(lista_plots1.2, ncol = 2)
+plot_ej1.2
+
+###QUITAR ESTO
+#ggsave(
+ # filename = "grafico_ej1.2.pdf", # El formato .pdf no pierde calidad al hacer zoom
+  #plot = plot_ej1.2,                        # El nombre del objeto que creaste
+  #device = "pdf", 
+  #width = 60,                      # Ancho en cm
+  #height = 30,                     # Alto en cm
+  #units = "cm",
+  #dpi = 600)                        # Máxima resolución para impresión
+
+
+```
+For the key variables, the data from 28 patients it's not available. In addition, in the CRP column, there are 5 patients whose data will have to be removed, as it is not numeric (it has been included as "\").
+
+As for the gender of the patients, in total, there are around the double of males than females patients in the study. But even though this proportion is more or less maintained for the Healthy Control and Non-COVID-19 groups, the proportion of female patients grows as the severity of COVID-19 increases, reaching nearly a 45:55 ratio for the Severe group.
+
+In the box plot of Age of Patients by Patient group we can see that while Severe patients hold the highest age median?? (la raya es al mediana??) for the four groups, it can't be stated that the level of severity correlates with age (at least withouth doing a statistical analysis). The greatest part of patients were between 30 and 70 years old.
+
+Similarly, in the BMI analysis, BMI and level of severity of the patients can't be correlated without doing the appropiate tests.
+
+Most of the patients spent less than 10 days from onset to admission and SEVERE TIME !!
+
+# Exercise 2
+
+## Exercise 2.1
+
+Reproduce Supplementary Figure 1 using the data without modifying or removing any observations. Use the same variables and groupings as in the original figure.
+
+```{r panel-12-biomarcadores, fig.width=12, fig.height=17, echo=FALSE}
+#Count (eje y) + Separar en : non-covid-19 + severe + non-severe
+df_filtrado <- df %>% 
+    filter(group != "Healthy Control") 
+# Convertimos a numérico: el "/" se transformará automáticamente en NA
+# Usamos as.character por si la columna se importó como factor
+df_filtrado$crp_i_mg_l <- as.numeric(as.character(df_filtrado$crp_i_mg_l))
+
+#Elegir los colores
+ mis_colores <- c(
+  "Non-COVID-19"  = "blue", # Azul
+  "Non-severe" = "orange", # Naranja
+  "Severe"     = "maroon"  # Rojo/Coral
+)
+
+plot_exercise2 <- function(df, var_name, y_label, title_name, y_max, tipo_escala, saltos) {
+  
+  # Calculamos el resumen dentro de la función
+  df_resumen <- df %>%
+    group_by(group) %>%
+    summarise(
+      mean_val = mean(.data[[var_name]], na.rm = TRUE),
+      sd_val = sd(.data[[var_name]], na.rm = TRUE),
+      .groups = 'drop'
+    )
+# Generamos el gráfico
+ p <- ggplot(df, aes(x = group, y = .data[[var_name]], color = group)) +
+    geom_col(data = df_resumen, aes(x = group, y = mean_val), 
+             fill = "white", linewidth = 1, width = 0.6) +
+    geom_jitter(width = 0.2, alpha = 0.5, size = 1.2) +
+    geom_errorbar(data = df_resumen, aes(x = group, y = mean_val,
+                                         ymin = mean_val - sd_val, 
+                                         ymax = mean_val + sd_val),
+                  width = 0.2, linewidth = 0.8) +
+    #Defino colores 
+    scale_color_manual(values = mis_colores) +
+    scale_fill_manual(values = mis_colores) +
+    labs(title = title_name, y = y_label, x = NULL) +
+    theme_classic() +
+    theme(legend.position = "none")
+
+ 
+ # Definimos qué grupos queremos comparar
+  comps <- list( 
+    c("Non-severe", "Severe"), 
+    c("Non-COVID-19", "Severe"),
+    c("Non-COVID-19","Non-severe")
+  )
+  
+  signif_comps <- comps[sapply(comps, function(x) {
+    res <- t.test(df[[var_name]] ~ df$group, subset = df$group %in% x)
+    return(!is.na(res$p.value) && res$p.value < 0.05)
+  })]
+
+  # Si hay alguna significativa, la añadimos. 
+  if(length(signif_comps) > 0) {
+  p <- p + stat_compare_means(
+    comparisons = signif_comps,
+    method = "t.test",      # O "wilcox.test" si tus datos no son normales
+    label = "p.signif",     # Esto pone los asteriscos (*, **, ***)
+    symnum.args = list(
+      cutpoints = c(0, 0.001, 0.01, 0.05), 
+      symbols = c("***", "**", "*")
+    ),
+    bracket.size = 0.5,     # Grosor de la línea de comparación
+    step.increase = 0.1,    # Espacio entre barras para que no se solapen
+    hide.ns = TRUE
+  )}
+ 
+ #Modificar Eje Y
+  if (!is.null(tipo_escala) && tipo_escala == "log") {
+    p <- p + scale_y_log10()
+    p <- p + coord_cartesian(ylim = c(NA, y_max)) # NA permite que el log decida el mínimo
+  } else {
+    # Si no especificas saltos en la lista, ggplot los pondrá automáticos
+    if (!is.null(saltos)) {
+      p <- p + scale_y_continuous(breaks = seq(0, y_max, by = saltos))
+    }
+    p <- p + coord_cartesian(ylim = c(0, y_max))
+  }
+  p <- p + theme(
+   # Reduce el tamaño del título 
+    plot.title = element_text(size = 10, face = "bold", hjust = 0.5),
+   # Añade un poco de margen a la derecha y arriba para que no se peguen
+    plot.margin = margin(t = 10, r = 10, b = 10, l = 10)
+  )
+ return(p)
+}
+
+# Lista de variables a graficar
+variables <- list(
+  list(col = "wbc_count_109_l", label = "Count (x10^9/L)", title = "White Blood Cell (WBC)", limite = 25, tipo_escala = "lineal", saltos = 5),
+  list(col = "lymphocyte_count_109_l", label = "Count (x10^9/L)", title = "Lymphocyte", limite = 4.3, tipo_escala = "lineal", saltos = 1),
+  list(col = "monocyte_count_109_l", label = "Count (x10^9/L)", title = "Monocyte", limite = 1.30, tipo_escala = "lineal", saltos = 0.25),
+  list(col = "platelet_count_109_l", label = "Count (x10^9/L)", title = "Platelet", limite =410, tipo_escala = "lineal", saltos = 100),
+  list(col = "crp_i_mg_l", label = "mg/L", title = "C-reactive protein (CRP)", limite =351),
+  list(col = "alt_j_u_l", label = "U/L", title = "Alanine aminotransferase (ALT)", limite =820),
+  list(col = "ast_k_u_l", label = "U/L", title = "Aspartate aminotransferase (AST)", limite =810),
+  list(col = "ggt_l_u_l", label = "U/L", title = "Glutamyltransferase (GGT)", limite =300),
+  list(col = "tbil_m_mmol_l", label = "µmol/L", title = "Total bilirubin (TBIL)", limite = 420),
+  list(col = "dbil_n_mmol_l", label = "µmol/L", title = "Direct bilirubin (DBIL)", limite =270),
+  list(col = "creatinine_mmol_l", label = "µmol/L", title = "Creatinine", limite =410),
+  list(col = "glucose_mmol_l", label = "µmol/L", title = "Glucose", limite =30)
+)
+
+lista_plots2.1 = list()
+for (v in variables) {
+  
+  # Aquí especificamos el nombre del Data Frame
+  p <- plot_exercise2(
+         df = df_filtrado,  # tabla de la que vienen las columnas
+         var_name = v$col,    # El nombre de la columna 
+         y_label = v$label,   # La etiqueta del eje Y
+         title_name = v$title, 
+         y_max = v$limite,
+         tipo_escala = v$tipo_escala,
+         saltos = v$saltos
+       )
+  print(p)
+  # Guardamos los gráficos en una lista
+  lista_plots2.1[[v$col]] <- p 
+}
+
+# Los combinamos todos (ejemplo 3 columnas por 4 filas)
+plot_ej2.1 <- wrap_plots(lista_plots2.1, ncol = 3)
+plot_ej2.1
+
+### BORRAR
+#ggsave(
+ # filename = "grafico_ej2.1.pdf", # El formato .pdf no pierde calidad al hacer zoom
+  #plot = plot_ej2.1,                        # El nombre del objeto que creaste
+  #device = "pdf", 
+  #width = 30,                      # Ancho en cm
+  #height = 40,                     # Alto en cm
+  #units = "cm",
+  #dpi = 600)                        # Máxima resolución para impresión
+
+```
+
+## Exercise 2.2
+
+Identify and handle outliers using an appropriate and well-justified method (e.g. removal, transformation, or robust statistics).
+
+Reproduce Supplementary Figure 1 after outlier handling and discuss how and why the results change.
+
+```{r panel-no-outliers, fig.width=12, fig.height=17, echo=FALSE}
+#ELIMINAR OUTLIERS
+eliminar_outliers <- function(df, columna) {
+  #calcular cuartiles
+  q1 <-  quantile(df[[columna]], 0.25, na.rm = TRUE)
+  q3 <-  quantile(df[[columna]], 0.75, na.rm = TRUE)
+  iqr <- IQR(df[[columna]], na.rm = TRUE)
+  # Definimos límites
+  limite_inf <- q1 - 1.5*iqr
+  limite_sup <- q3 + 1.5*iqr
+  # Filtramos el dataframe
+  df_sin_outliers <- df %>%
+    filter(.data[[columna]] >= limite_inf & .data[[columna]] <= limite_sup)
+  
+  return(df_sin_outliers)
+}
+
+lista_plots2.2 <- list()
+for (v in variables){
+  df_temp <- eliminar_outliers(df_filtrado, v$col)
+  p <- plot_exercise2(
+         df = df_temp, 
+         var_name = v$col, 
+         y_label = v$label, 
+         title_name = v$title,
+         y_max = v$limite,
+         tipo_escala = v$tipo_escala,
+         saltos = v$saltos
+       )
+  print(p)
+  lista_plots2.2[[v$col]] <- p 
+}
+plot_ej2.2 <- wrap_plots(lista_plots2.2, ncol = 3)
+plot_ej2.2
+
+### BORRAR
+ggsave(
+  filename = "grafico_ej2.2.pdf", # El formato .pdf no pierde calidad al hacer zoom
+  plot = plot_ej2.2,                        # El nombre del objeto que creaste
+  device = "pdf", 
+  width = 30,                      # Ancho en cm
+  height = 40,                     # Alto en cm
+  units = "cm",
+  dpi = 600                        # Máxima resolución para impresión
+)
+
+```
+
+# Exercise 3
+
+Create a heatmap of the biomarker data. Include group and gender as annotation variables.
+
+```{r panel-heatmap, fig.width=12, fig.height=17, echo=FALSE}
+#creo Data.frame solo con IDs + biomarcadores
+df_biomarkers <-  df_filtrado %>%
+  filter(!is.na(crp_i_mg_l)) %>%         ###Quito a los pacientes con NA en "crp" 
+  select(1,19:22,24:31)                  #Quito a los Healthy, porque no tienen medidas de Biomarkers
+#creo Matriz
+matrix_biomarkers <- as.matrix(df_biomarkers[,-1]) #con esto no añado la columna de ID a la matriz
+#IDs como rownames
+rownames(matrix_biomarkers) <- df_biomarkers$patient_id_a
+#Escalar matriz
+matrix_escalada <- scale(matrix_biomarkers)
+
+#creo Data.frame con las anotaciones
+df_anotacion <- df_filtrado %>% 
+  filter(patient_id_a %in% df_biomarkers$patient_id_a) %>% #cojo solo los pacientes de df_biomarkers
+  select(sex, group) %>%  #guardo su sex y group
+  as.data.frame() #por si acaso
+#Le añado a df_anotacion los IDs
+rownames(df_anotacion) <- df_biomarkers$patient_id_a
+#Colores
+colores_heatmap <- list(
+  group = c("Non-COVID-19" = "blue", "Non-severe" = "orange", "Severe" = "red"),
+  sex = c("Male" = "darkgreen", "Female" = "deeppink3")
+)
+
+#Creo el Heatmap
+heatmap3 <- pheatmap(matrix_escalada, 
+         annotation_row = df_anotacion,    # Aquí añadimos Group y Gender
+         annotation_colors = colores_heatmap,
+         main = "Biomarkers Profile by Group and Gender",
+         clustering_distance_rows = "euclidean", # Agrupa pacientes similares
+         show_rownames = FALSE,            # Quitamos IDs porque habrá muchos
+         labels_col = c("WBC", "Lymphocyte", "Monocyte", "Platelet", 
+                    "CRP", "ALT", "AST", "GGT", "TBIL", "DBIL", "Creatine",
+                    "Glucose"),
+         angle_col = "45",
+         color = colorRampPalette(c("navy", "white", "firebrick3"))(50))
+heatmap3
+
+### BORRAR
+ggsave(filename = "heatmap.pdf",
+       plot = heatmap3,
+       device = "pdf")
+```
+
+# Conclusion
+
+Write a concise conclusion (1 paragraphs) summarizing the main differences observed across the three patient groups based on the twelve clinical parameters. Support your statements with evidence from your analyses.
+
+# session info {.unnumbered}
+
+```{r, results='asis',  echo=FALSE, message=FALSE }
+sessionInfo()
+```
