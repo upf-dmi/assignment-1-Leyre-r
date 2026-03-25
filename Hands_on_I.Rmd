@@ -1,18 +1,30 @@
 ---
-title: "Hands_on_I"
+title: "Hands on I"
 author: "Leyre Roca (leyre.roca01@estudiant.upf.edu)"
 date: "Last update: `r format(Sys.time(), '%d %B, %Y')`"      
 output:
   html_document:
-    toc: true
+    theme: cosmo         
+    highlight: tango      
+    toc: true             
+    toc_float: true       
     fig_caption: true
 ---
+
+<style>
+/* Justificar todo el texto del informe */
+body {
+    text-align: justify;
+    hyphens: auto; /* Ayuda a que las palabras se partan con guiones si es necesario */
+}
+</style>
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(
   warning = FALSE, 
   message = FALSE,
-  echo = TRUE)
+  echo = TRUE,
+  fig.align = "center")
 ```
 
 
@@ -26,8 +38,6 @@ Download and load Supplementary Table 1 (“Additional Demographical and Baselin
 
 
 ```{r packages}
-#install.packages(c("readxl","dplyr","stringr","readr","lubridate","table1","janitor","htmltools","ggplot2","ggpubr", "patchwork", "pheatmap", "gtsummary","tidyverse"))
-
 library(readxl)
 library(dplyr)
 library(stringr)
@@ -180,19 +190,20 @@ Perform an exploratory data analysis (EDA) of the dataset. At a minimum, include
 # 1. Data for Descriptive statistics
 df_EDA <- df[,c(19:22,24:32)] %>% 
   mutate(across(c(crp_i_mg_l, wbc_count_109_l, lymphocyte_count_109_l), as.numeric)) %>%
-drop_na() 
+  drop_na() 
+colnames(df_EDA) <- c("WBC","Lymphocyte","Monocyte","Platelet","CRP","ALT","AST","GGT","TBIL","DBIL","Creatinine","Glucose","group")
 
 # 2. Create the table
 df_EDA %>%
   tbl_summary(
     by = group, 
     statistic = list(
-      all_continuous() ~ "{mean} (± {sd}) \n Median: {median} (IQR: {p25}, {p75}) \n Range: {min} - {max}"
+      all_continuous() ~ "Mean: {mean} (± {sd})  \n Median: {median} (IQR: {p25}, {p75})  \n Range: {min} - {max}"
     ),
-    digits = all_continuous() ~ 1 # Esto redondea a 1 decimal para que sea legible
+    digits = all_continuous() ~ 1 
   ) %>%
   modify_header(label = "**Variable**") %>%
-  bold_labels()
+  bold_labels() 
 
 
 ### Visualizations
@@ -474,7 +485,7 @@ Create a heatmap of the biomarker data. Include group and gender as annotation v
 #create data frame only with IDs + biomarkers
 df_biomarkers <-  df_filtrado %>%
   filter(!is.na(crp_i_mg_l)) %>%         
-  select(1,19:22,24:31)       #Remove Healthy, they don't have Biomarkers meassures
+  select(1,19:22,24:31)       #Remove Healthy, they don't have Biomarkers measures
 
 matrix_biomarkers <- as.matrix(df_biomarkers[,-1]) 
 rownames(matrix_biomarkers) <- df_biomarkers$patient_id_a
@@ -514,7 +525,10 @@ Write a concise conclusion (1 paragraphs) summarizing the main differences obser
 
 Taking into account the statistically significant differences seen in the biomarkers results, after removing the outliers, several key findings emerge. Patients in the Severe group exhibit lower  lymphocytes levels than those in the Non-severe group, indicating a compromised immune response as the virus drives T-lymphocytes depletion. In addition, the higher levels of CRP in Severe patients show that those patients are suffering a systemic inflammation, caused by the evolution of the disease. The increase of Glucose in Severe patients is likely a physiological stress response. While the increase of GGT in Severe patients could be a collateral effect of hepatic damage caused, by the virus or the drugs administered to Severe patients. There is also an increment in the number of White Blood Cells (WBC) in Non-covid patients with respect to Non-severe patients, but that could be attributed to the fact that Non-covid patients suffered from other diseases, and not to Covid-19 patients having lower levels of WBC. In conclusion, the analysis of those biomarkers corroborates the clinical evolution expected from Non-severe to Severe states, adding relevant insights to better understand the state of the patients. 
 
-# session info {.unnumbered}
+# Session info {.unnumbered}
+
+<details>
+<summary><strong>Session Information</strong> (Click to show)</summary>
 
 ```{r, results='asis',  echo=FALSE, message=FALSE }
 sessionInfo()
